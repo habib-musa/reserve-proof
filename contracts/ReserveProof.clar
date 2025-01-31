@@ -1,6 +1,9 @@
+;; ReserveProof contract
+;; This contract manages reserves and authorized withdrawers
 (define-data-var reserve-balance uint u0)
 (define-data-var reserve-threshold uint u1000)
 (define-data-var authorized-withdrawer (optional principal) none)
+(define-map token-balances {token: principal, owner: principal} uint)
 
 (define-constant ERR_NOT_AUTHORIZED u100)
 (define-constant ERR_INSUFFICIENT_BALANCE u101)
@@ -10,6 +13,9 @@
 (define-constant ERR_THRESHOLD_TOO_HIGH u105)
 (define-constant ERR_OVERFLOW u106)
 (define-constant ERR_INVALID_WITHDRAWER u107)
+(define-constant ERR_TOKEN_NOT_FOUND u108)
+(define-constant ERR_INSUFFICIENT_TOKEN_BALANCE u109)
+
 
 (define-constant MAX_UINT u340282366920938463463374607431768211455)
 
@@ -62,6 +68,29 @@
             (print {event: "withdraw", amount: amount, new_balance: new-balance})
             (ok new-balance)))
       (err ERR_NOT_AUTHORIZED))))
+
+;; New functionality: Token management
+(define-public (deposit-token (token principal) (amount uint))
+    (begin
+        (asserts! (> amount u0) (err ERR_INVALID_INPUT))
+        (let ((balance (default-to u0 (map-get? token-balances {token: token, owner: tx-sender}))))
+        (asserts! (<= (+ balance amount) MAX_UINT) (err ERR_OVERFLOW))
+        (map-set token-balances {token: token, owner: tx-sender} (+ balance amount))
+        (print {event: "token-deposit", token: token, amount: amount, new-balance: (+ balance amount)})
+        (ok (+ balance amount)))))
+
+(define-public (withdraw-token (token principal) (amount uint))
+    (begin
+        (asserts! (> amount u0) (err ERR_INVALID_INPUT))
+        (let ((balance (default-to u0 (map-get? token-balances {token: token, owner: tx-sender}))))
+            (asserts! (>= balance amount) (err ERR_INSUFFICIENT_TOKEN_BALANCE))
+            (map-set token-balances {token: token, owner: tx-sender} (- balance amount))
+            (print {event: "token-withdraw", token: token, amount: amount, new-balance: (- balance amount)})
+            (ok (- balance amount)))))
+
+(define-read-only (get-token-balance (token principal) (owner principal))
+    (ok (default-to u0 (map-get? token-balances {token: token, owner: owner}))))
+
 
 (define-read-only (get-reserve-balance)
   (ok (var-get reserve-balance)))
