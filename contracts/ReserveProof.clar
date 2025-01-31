@@ -1,6 +1,12 @@
+;; ReserveProof contract
+;; This contract manages reserves and authorized withdrawers
+
+(define-trait token-trait
+    ((get-name () (response (string-ascii 32) uint))))
 (define-data-var reserve-balance uint u0)
 (define-data-var reserve-threshold uint u1000)
 (define-data-var authorized-withdrawer (optional principal) none)
+(define-map token-balances {token: principal, owner: principal} uint)
 
 (define-constant ERR_NOT_AUTHORIZED u100)
 (define-constant ERR_INSUFFICIENT_BALANCE u101)
@@ -10,6 +16,9 @@
 (define-constant ERR_THRESHOLD_TOO_HIGH u105)
 (define-constant ERR_OVERFLOW u106)
 (define-constant ERR_INVALID_WITHDRAWER u107)
+(define-constant ERR_TOKEN_NOT_FOUND u108)
+(define-constant ERR_INSUFFICIENT_TOKEN_BALANCE u109)
+
 
 (define-constant MAX_UINT u340282366920938463463374607431768211455)
 
@@ -62,6 +71,30 @@
             (print {event: "withdraw", amount: amount, new_balance: new-balance})
             (ok new-balance)))
       (err ERR_NOT_AUTHORIZED))))
+(define-public (deposit-token (token <token-trait>) (amount uint))
+    (begin
+        (asserts! (> amount u0) (err ERR_INVALID_INPUT))
+        (asserts! (is-ok (contract-call? token get-name)) (err ERR_TOKEN_NOT_FOUND))
+        (let ((balance (default-to u0 (map-get? token-balances {token: (contract-of token), owner: tx-sender})))
+              (new-balance (+ balance amount)))
+            (asserts! (<= new-balance MAX_UINT) (err ERR_OVERFLOW))
+            (map-set token-balances {token: (contract-of token), owner: tx-sender} new-balance)
+            (ok new-balance))))
+
+(define-public (withdraw-token (token <token-trait>) (amount uint))
+    (begin
+        (asserts! (> amount u0) (err ERR_INVALID_INPUT))
+        (asserts! (is-ok (contract-call? token get-name)) (err ERR_TOKEN_NOT_FOUND))
+        (let ((token-id (contract-of token))
+              (balance (default-to u0 (map-get? token-balances {token: token-id, owner: tx-sender}))))
+            (asserts! (>= balance amount) (err ERR_INSUFFICIENT_TOKEN_BALANCE))
+            (let ((new-balance (- balance amount)))
+                (map-set token-balances {token: token-id, owner: tx-sender} new-balance)
+                (ok new-balance)))))
+
+(define-read-only (get-token-balance (token <token-trait>) (owner principal))
+    (ok (default-to u0 (map-get? token-balances {token: (contract-of token), owner: owner}))))
+
 
 (define-read-only (get-reserve-balance)
   (ok (var-get reserve-balance)))
